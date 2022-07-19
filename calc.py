@@ -2,6 +2,12 @@
 import re
 
 
+def exp(index, operators, numbers):
+    operators.pop(index)
+    numbers[index] = numbers[index] ** numbers[index + 1]
+    numbers.pop(index + 1)
+
+
 def mult(index, operators, numbers):
     operators.pop(index)
     numbers[index] = numbers[index] * numbers[index + 1]
@@ -34,7 +40,7 @@ def scrapping(expression):
     brackets = 0
     expression = [
         element
-        for element in re.split(r"([\*\-\+\/\(\)])", expression)
+        for element in re.split(r"([\*\-\+\/\(\)\^])", expression)
         if element not in ("", " ")
     ]
 
@@ -53,7 +59,7 @@ def scrapping(expression):
         else:
             if char == "(":
                 has_brackets = True
-            elif char in ("*", "+", "-", "/"):
+            elif char in ("*", "+", "-", "/", "^"):
                 operators.append(char)
             else:
                 numbers.append(float(char))
@@ -64,6 +70,13 @@ def calc(expression):
     numbers, operators = scrapping(expression)
     index = 0
     # Prioriza primeiro multiplicação e divisão
+    while "^" in operators:
+        if operators[index] == "^":
+            funcs[operators[index]](index, operators, numbers)
+        else:
+            index += 1
+
+    index = 0
     while "*" in operators or "/" in operators:
         if operators[index] in ("*", "/"):
             funcs[operators[index]](index, operators, numbers)
@@ -77,6 +90,15 @@ def calc(expression):
     return numbers[0]
 
 
+funcs = {
+    "*": mult,
+    "/": div,
+    "+": add,
+    "-": sub,
+    "^": exp,
+}
+
+
 def main():
     expression = input(
         "Digite a expressão separada por espaço pq to com preguiça de separar:\n~ "
@@ -84,6 +106,5 @@ def main():
     print(f"{expression} = {calc(expression):.2f}")
 
 
-funcs = {"*": mult, "/": div, "+": add, "-": sub}
 if __name__ == "__main__":
     main()
