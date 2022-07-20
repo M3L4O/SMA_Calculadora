@@ -69,7 +69,7 @@ def scrapping(expression):
 def calc(expression):
     numbers, operators = scrapping(expression)
     index = 0
-    # Prioriza primeiro multiplicação e divisão
+    # Prioriza exponenciação
     while "^" in operators:
         if operators[index] == "^":
             funcs[operators[index]](index, operators, numbers)
@@ -77,6 +77,7 @@ def calc(expression):
             index += 1
 
     index = 0
+    # Solucina multiplicação e divisão
     while "*" in operators or "/" in operators:
         if operators[index] in ("*", "/"):
             funcs[operators[index]](index, operators, numbers)
