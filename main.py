@@ -86,7 +86,8 @@ class CoordAgent(Agent):
             numbers[index] = float(response.body)
 
         async def run(self):
-            resultado = await self.calc("1+2/2+1*10")
+            resultado = await self.calc(expression)
+            print(f"O resultado da {expression} é {resultado}")
             await sleep(10)
 
     async def setup(self):
@@ -116,6 +117,7 @@ class ResponseAgent(Agent):
 
 
 if __name__ == "__main__":
+    expression = input("Digite a expressão:\n~ ")
     add_agent = ResponseAgent("agent_add@yax.im", "123456")
     add_agent.start()
     mult_agent = ResponseAgent("agent_mult@yax.im", "123456")
