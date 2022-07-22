@@ -38,6 +38,9 @@ def scrapping(expression):
     child_expression = ""
     has_brackets = False
     brackets = 0
+    print(expression)
+    expression = expression.replace(" ", "")
+    print(expression)
     expression = [
         element
         for element in re.split(r"([\*\-\+\/\(\)\^])", expression)
