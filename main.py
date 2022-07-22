@@ -94,6 +94,9 @@ class CoordAgent(Agent):
         print(f"[blue]Agente [bold green]{self.name}[/bold green] iniciado...[/blue]")
         op_beha = self.OperBeha()
         self.add_behaviour(op_beha)
+        self.presence.set_available()
+        for agent in AGENTS.values():
+            self.presence.subscribe(agent)
 
 
 class ResponseAgent(Agent):
