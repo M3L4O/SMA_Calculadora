@@ -3,7 +3,7 @@ from spade.behaviour import OneShotBehaviour, CyclicBehaviour
 from spade.message import Message
 from asyncio import sleep
 import re
-from rich import print
+from rich.console import Console
 
 
 class CoordAgent(Agent):
@@ -86,12 +86,14 @@ class CoordAgent(Agent):
 
         async def run(self):
             resultado = await self.calc(expression)
-            print(f"O resultado da {expression} é {resultado}")
+            console.print(f"O resultado da {expression} é {resultado}")
             await sleep(10)
             self.kill()
 
     async def setup(self):
-        print(f"[blue]Agente [bold green]{self.name}[/bold green] iniciado...[/blue]")
+        console.print(
+            f"[blue]Agente [bold green]{self.name}[/bold green] iniciado...[/blue]"
+        )
         op_beha = self.OperBeha()
         self.add_behaviour(op_beha)
         self.presence.set_available()
@@ -109,13 +111,15 @@ class ResponseAgent(Agent):
                 response.body = f"{eval(expr)}"
                 response.metadata = {"performative": "inform"}
                 await self.send(response)
-                print(f"Recebida: {msg.body}\t Respondida: {response.body}")
+                console.print(f"Recebida: {msg.body}\t Respondida: {response.body}")
 
             else:
                 self.kill()
 
     async def setup(self):
-        print(f"[green]Agente [bold red]{self.name}[/bold red] iniciado...[/green]")
+        console.print(
+            f"[green]Agente [bold red]{self.name}[/bold red] iniciado...[/green]"
+        )
         recv_beha = self.RecvBeha()
         self.add_behaviour(recv_beha)
 
@@ -128,6 +132,7 @@ if __name__ == "__main__":
         "-": "agent_sub@yax.im",
         "^": "agent_exp@yax.im",
     }
+    console = Console()
     expression = input("Digite a expressão:\n~ ")
     add_agent = ResponseAgent(AGENTS["+"], "123456")
     add_agent.start()
@@ -147,4 +152,4 @@ if __name__ == "__main__":
         while True:
             pass
     except KeyboardInterrupt:
-        print("\n\n[red]Encerrando...[/red]")
+        console.print("\n\n[red]Encerrando...[/red]")
