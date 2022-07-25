@@ -14,7 +14,7 @@ class CoordAgent(Agent):
             child_expression = ""
             has_brackets = False
             brackets = 0
-            pattern = "([" + r"\+\-\*\/\(\)\^" + "])"
+            pattern = "([" + r"\+\-\*\/\(\)\^v" + "])"
             expression = [
                 element
                 for element in re.split(pattern, expression.replace(" ", ""))
@@ -35,7 +35,7 @@ class CoordAgent(Agent):
                 else:
                     if char == "(":
                         has_brackets = True
-                    elif char in ("*", "+", "-", "/", "^"):
+                    elif char in ("*", "+", "-", "/", "^", "v"):
                         operators.append(char)
                     else:
                         numbers.append(float(char))
@@ -47,8 +47,8 @@ class CoordAgent(Agent):
             numbers, operators = await self.scrapping(expression)
             index = 0
             # Prioriza exponenciação
-            while "^" in operators:
-                if operators[index] == "^":
+            while "^" in operators or "v" in operators:
+                if operators[index] in ("^", "v"):
                     await self.send_request(index, operators, numbers)
                 else:
                     index += 1
@@ -71,7 +71,10 @@ class CoordAgent(Agent):
 
             msg = Message(to=AGENTS[operator])
 
-            msg.body = f"{numbers[index]}{operator}{numbers[index+1]}"
+            if operator != "v":
+                msg.body = f"{numbers[index]}{operator}{numbers[index+1]}"
+            else:
+                msg.body = f"{numbers[index]}{operator}"
             msg.metadata = {"performative": "request"}
             await self.send(msg)
 
@@ -80,7 +83,8 @@ class CoordAgent(Agent):
             while not response:
                 await self.send(msg)
                 response = await self.receive(timeout=5)
-            numbers.pop(index + 1)
+            if operator != "v":
+                numbers.pop(index + 1)
             operators.pop(index)
             numbers[index] = float(response.body)
 
@@ -107,7 +111,7 @@ class ResponseAgent(Agent):
             msg = await self.receive(timeout=30)
             if msg:
                 response = Message(to="agent_coord@yax.im")
-                expr = msg.body.replace("^", "**")
+                expr = msg.body.replace("^", "**").replace("v", "**0.5")
                 response.body = f"{eval(expr)}"
                 response.metadata = {"performative": "inform"}
                 await self.send(response)
@@ -131,6 +135,7 @@ if __name__ == "__main__":
         "+": "agent_add@yax.im",
         "-": "agent_sub@yax.im",
         "^": "agent_exp@yax.im",
+        "v": "agent_sqr@yax.im",
     }
     console = Console()
     expression = input("Digite a expressão:\n~ ")
@@ -144,6 +149,8 @@ if __name__ == "__main__":
     sub_agent.start()
     exp_agent = ResponseAgent(AGENTS["^"], "123456")
     exp_agent.start()
+    sqr_agent = ResponseAgent(AGENTS["v"], "123456")
+    sqr_agent.start()
 
     coord_agent = CoordAgent("agent_coord@yax.im", "123456")
     coord_agent.start()
