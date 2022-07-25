@@ -1,3 +1,0 @@
-[console_scripts]
-spade = spade.cli:main
-
