@@ -28,13 +28,21 @@ class FSM:
 
 class ExprParser:
     def __init__(self) -> None:
-        self.uops = { '^', 'v' }
-        self.bops1 = { '*', '/' }
-        self.bops2 = { '+', '-' }
+        self.expr = ''
+        self.num_stack = []
+        self.op_stack = []
+        self.tok_stack = []
+        
+        # self.pops = { 'v' : 1, '^' : 2, '*' : 3, '/' : 3, '+' : 4, '-' : 4 }
+        self.pops = { '-' : 1, '+' : 1, '*' : 2, '/' : 2, '^' : 3, 'v' : 4 }
+        
         self.mops = { '(', ')' }
+        self.uops = { x for x in self.pops if self.pops[x] == 4 }
+        self.bops = { x for x in self.pops if self.pops[x] < 4 }
         self.symb = { '+', '-', '.', 'e' }
         
-        self.gops = self.uops | self.bops1 | self.bops2 | self.mops
+        self.aops = self.mops | self.uops | self.bops
+        
         
         # Máquina de Estados que valida os números
         Q = { 'NewNum', 'q2', 'q3', 'q4', 'q5','q6', 'q7', 'q8' }
@@ -56,36 +64,65 @@ class ExprParser:
     def _parse(self, expr : str) -> None:
         expr = str(expr).replace(' ', '')
         
-        self.op_stack = []
-        self.num_stack = []
+        op_stack = []
+        num_stack = []
+        tok_stack = []
         num_buffer = []
         
         ectrl = True
         for c in expr:
-            if c in self.gops and ectrl:
-                if num_buffer: self.num_stack.append(''.join(num_buffer))
+            if c in self.aops and ectrl:
+                if num_buffer: 
+                    num_stack.append(''.join(num_buffer))
+                    tok_stack.append(''.join(num_buffer))
                 num_buffer.clear()
-                self.op_stack.append(c)
+                
+                op_stack.append(c)
+                tok_stack.append(c)
             else:
                 num_buffer.append(c)
                 ectrl = False if c == 'e' else True
                 
-        if num_buffer: self.num_stack.append(''.join(num_buffer))
+        if num_buffer: 
+            num_stack.append(''.join(num_buffer))
+            tok_stack.append(''.join(num_buffer))
+        
+        self.expr = expr
+        self.op_stack = op_stack
+        self.num_stack = num_stack
+        self.tok_stack = tok_stack
     
     
     def _verify_parse(self):
-        for num in self.num_stack:
-            if not self.NumSyntax.isValid(num): return False
+        if self.tok_stack[0] in self.num_stack or self.tok_stack[0] in self.uops | self.mops:
+            numctrl = True
+        else: 
+            numctrl = False
+        opctrl = not numctrl
         
-        parens_stack = 0
-        for op in self.op_stack:
-            if op == '(': parens_stack = parens_stack + 1
-            elif op == ')': parens_stack = parens_stack - 1
-            elif op not in self.gops: return False
-            
-            if parens_stack < 0: return False
+        parens_cnt = 0
+        for token in self.tok_stack:
+            if numctrl and self.NumSyntax.isValid(token):
+                numctrl = False
+                opctrl = True
+            elif opctrl and token in self.bops:
+                numctrl = True
+                opctrl = False
+            elif token in self.uops | self.mops:
+                if token == '(': parens_cnt += 1
+                elif token == ')': parens_cnt -= 1
+                if parens_cnt < 0:
+                    break
+            else:
+                break
+        else:
+            return True if parens_cnt == 0 else False
         
-        return True
+        return False
+    
+    
+    def check_valid_num(self, num : str):
+        return self.NumSyntax.isValid(num)
     
     
     def parse(self, expr : str) -> tuple:
@@ -93,7 +130,47 @@ class ExprParser:
         if not self._verify_parse(): return None
         return self.num_stack.copy(), self.op_stack.copy()
     
+    
+    def parse_postfix(self, expr : str) -> str:
+        if expr != self.expr and self.parse(expr) == None: return None 
+        
+        postfix = []
+        conv_stack = []
+        
+        for token in self.tok_stack:
+            if token in self.num_stack:
+                postfix.append(token)
+            elif token == '(':
+                conv_stack.append('(')
+            elif token == ')':
+                while len(conv_stack) and conv_stack[-1] != '(':
+                    postfix.append(conv_stack.pop())
+                
+                if len(conv_stack):
+                    if conv_stack[-1] != '(':
+                        return False
+                    else:
+                        conv_stack.pop()
+            else:
+                while len(conv_stack) and \
+                      self.pops.get(token) <= self.pops.get(conv_stack[-1], 0):
+                    if token == '^' and conv_stack[-1] == token:
+                        break
+                    postfix.append(conv_stack.pop())
+                conv_stack.append(token)
+        
+        while len(conv_stack):
+            postfix.append(conv_stack.pop())
+        
+        self.postfix = ''.join(postfix)
+        
+        return ''.join(postfix)
+    
 
 if __name__ == '__main__':
     ep = ExprParser()
-    print(ep.parse('133 + 320e+10* (32-10^ 5 - v10 )'))
+    expr = '(1 + 2)* 3-4^ 5 - v6 '
+    print(ep.parse(expr))
+    print(ep.parse_postfix(expr))
+    print(ep.expr)
+    print(ep.check_valid_num(30), ep.check_valid_num(30.23), ep.check_valid_num(30.13e-10))
