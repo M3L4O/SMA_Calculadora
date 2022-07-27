@@ -53,6 +53,8 @@ class ExprParser:
         
         self.aops = self.mops | self.uops | self.bops
         
+        self._isValidExpr = False
+        
         
         # Máquina de Estados que valida os números
         Q = { 'NewNum', 'q2', 'q3', 'q4', 'q5','q6', 'q7', 'q8' }
@@ -126,9 +128,12 @@ class ExprParser:
             else:
                 break
         else:
-            return True if parens_cnt == 0 else False
+            if parens_cnt == 0: self._isValidExpr = True
+            else: self._isValidExpr = False
+            return self._isValidExpr
         
-        return False
+        self._isValidExpr = False
+        return self._isValidExpr
     
     
     def check_valid_num(self, num : str):
@@ -136,13 +141,17 @@ class ExprParser:
     
     
     def parse(self, expr : str) -> tuple:
+        if str(expr).replace(' ', '') == self.expr:
+            if self._isValidExpr: return self.num_stack.copy(), self.op_stack.copy()
+            else: return None
+        
         self._parse(expr)
         if not self._verify_parse(): return None
-        return self.num_stack.copy, self.op_stack.copy()
+        return self.num_stack.copy(), self.op_stack.copy()
     
     
     def parse_postfix(self, expr : str) -> str:
-        if expr != self.expr and self.parse(expr) == None: return None 
+        if str(expr).replace(' ', '') != self.expr and self.parse(expr) == None: return None 
         
         postfix = []
         conv_stack = []
@@ -178,10 +187,60 @@ class ExprParser:
     
 
 class CoordinatorAgent(Agent):
-    class CoordinateBehav(CyclicBehaviour):
+    class RecieveBehav(CyclicBehaviour):
+        async def on_start(self) -> None:
+            self.expr_request = False
+            self.expr_queue = []
+            self.ontologies = ['solve', 'environ_request', 'solver_request']
+            
+            self.presence.set_available()
+        
+        
+        async def get_msg(self) -> Message():
+            while True:
+                msg = await self.receive()
+                if msg: 
+                    return msg
+        
+        
+        async def run(self):
+            msg = await self.get_msg()
+            print(f'Got mail! {msg}\n\n')
+            
+            if msg.metadata.get('ontology') == 'solve':
+                await self.agent.SolBehav.enqueue(msg)
+                print(f'Solution to solver: {expr}')  
+                
+            elif msg.metadata.get('ontology') == 'environ_request':
+                if self.expr_request:
+                    self.expr_request = False
+                    await self.agent.SolBehav.enqueue(msg)
+                    print(f'Expression to solver: f{msg.body}')
+                    
+                else: 
+                    self.expr_queue.append(msg.body)
+                    
+            elif msg.metadata.get('ontology') == 'solver_request':
+                if self.expr_queue:
+                    self.expr_request = False
+                    expr = Message(sender=self.get('jid'))
+                    expr.body = self.expr_queue.pop(0)
+                    await self.agent.SolBehav.enqueue(msg)
+                    print(f'Expression to solver: f{expr}')
+                else: 
+                    self.expr_request = True
+                    
+            elif msg.metadata.get('ontology') == 'end':
+                self.kill()
+        
+        
+        async def on_end(self):
+            await self.agent.stop()
+    
+    
+    class SolveBehav(CyclicBehaviour):
         async def on_start(self) -> None:
             self.parser = ExprParser()
-            self.expr_queue = []
             
             self.curr_expr_dict = {}
             self.curr_expr_postfix = []
@@ -195,10 +254,13 @@ class CoordinatorAgent(Agent):
             
             self.eval_complete = True
             
+            self.request_mail = Message(to=self.get('jid'), sender=self.get('jid'))
+            self.request_mail.set_metadata('performative', 'request')
+            self.request_mail.set_metadata('ontology', 'solver_request')
+            
             self.presence.set_available()
             for jid in self.get('agents').values():
                 self.presence.subscribe(jid)
-                
             
             self._print('Coordina\'or is coordinatin\'!')
         
@@ -207,29 +269,43 @@ class CoordinatorAgent(Agent):
             print(f'Agent Coordinator > ' + str(out_str))
         
         
-        def check_expr_in_buffer(self):
-            while len(self.get('expr')):
-                self.expr_queue.append(self.get('expr').pop(0))
-                self._print(f'Expression {self.expr_queue[-1]} enqueued successfully. Currently in eval position {len(self.expr_queue)}.')
+        def add_expr(self, expr : str) -> bool:
+            if self.in_buffer_busy: return False
+            
+            self.set('expr', expr)
+            self.in_buffer_busy = True
+            return True
         
         
-        def is_next_expr_valid(self):
-            expr = self.expr_queue.pop(0)
-            self.curr_expr_dict['nums'], self.curr_expr_dict['ops'] = self.parser.parse(expr) 
+        async def request_expr(self):
+            self._print('REQUESTED EXPR')
+            await self.send(self.request_mail)
+            
+            msg = await self.receive()
+            if not msg: return None
+            
+            expr = msg.body
             self.curr_expr_postfix = self.parser.parse_postfix(expr)
+            
+            if self.curr_expr_postfix == None:
+                self._print(f'Expression {msg.body} not valid. Skipping...')
+                await self.send(self.request_mail)
+                return None
+            
+            self.curr_expr_dict['nums'], self.curr_expr_dict['ops'] = self.parser.parse(expr) 
             self.curr_expr_postfix_save = self.curr_expr_postfix
             self.curr_expr = self.parser.expr
             
-            if self.curr_expr_postfix == None:
-                self._print(f'Expression {self.curr_expr} is not valid. Check logs?')
-                return True
-            return False
+            self._print(f'Expression {msg.body} received. Evaluating...')
+            self.eval_complete = False
+            return msg.body
         
         
         def get_oportunities(self):
             oportunity_list = []
-            for i in len(self.curr_expr_postfix):
-                if i in self.curr_expr_dict['nums']: continue
+            
+            for i in range(len(self.curr_expr_postfix)):
+                if self.curr_expr_postfix[i] in self.curr_expr_dict['nums']: continue
                 
                 curr_op = self.curr_expr_postfix[i]
                 
@@ -253,31 +329,28 @@ class CoordinatorAgent(Agent):
             else: op_range = [oportunity - 2, oportunity]
             
             msg = Message(to=self.get('agents')[op], sender=self.get('jid'))
-            msg.body(' '.join([ x for x in self.curr_expr_postfix[op_range[0] : op_range[1]] ]))
+            msg.body = ' '.join([ x for x in self.curr_expr_postfix[op_range[0] : op_range[1]] ])
             msg.set_metadata('performative', 'query')
             
             return (msg, self.get('agents')[op], op_range)
         
         
         async def run(self):
-            # Verifica se há novos pedidos para 
-            self.check_expr_in_buffer()
+            # Verifica se há novos pedidos para resolver expressões
+            if self.eval_complete: 
+                self.curr_expr = await self.request_expr()
             
-            # Agente coordenador pronto para consumir outra expressão
-            if len(self.expr_queue) and self.curr_expr:
-                if not self.is_next_expr_valid(): return
-                self.eval_complete = False
-            
-            # Agente coordenador retorna se não houverem expressões em avaliação
-            if self.eval_complete: return
+            if self.curr_expr == None:
+                return
             
             # Agente coordenador busca oportunidades de realizar operações
+            print('got expr oportunities')
             oportunities = self.get_oportunities()
             
             # Agente coordenador envia as oportunidades
             expected_resps = []
             for oportunity in oportunities:
-                msg, exp = self.pack_oportunity(oportunity)
+                msg, *exp = self.pack_oportunity(oportunity)
                 expected_resps.append(exp)
                 send = asyncio.create_task(self.send(msg))
                 self.sends.add(send)
@@ -286,14 +359,19 @@ class CoordinatorAgent(Agent):
             
             # Agente coordenador verifica as respostas e atualiza listas de mudanças
             updates = []
-            for i in range(len(oportunities)):
+            print(oportunities)
+            n_recvs = len(oportunities)
+            while n_recvs >= 0:
                 msg = await self.receive()
                 
-                for exp in expected_resps:
-                    if msg.sender == exp[0]:
-                        exp_range = exp[1]
-                        return
-                updates.append((exp_range, msg.body))
+                if msg:
+                    print(msg)
+                    for exp in expected_resps:
+                        if msg.sender == exp[0]:
+                            exp_range = exp[1]
+                            return
+                    updates.append((exp_range, msg.body))
+                    n_recvs -= 1
             
             # Agente aplica as mudanças na ordem reversa de índice
             for up in reversed(updates.sort()):
@@ -301,6 +379,7 @@ class CoordinatorAgent(Agent):
             
             # Agente verifica se a expressão está finalizada
             if self.parser.check_valid_num(self.curr_expr_postfix):
+                self._print('Válido, I guess')
                 self.eval_complete = True
         
         
@@ -323,16 +402,14 @@ class CoordinatorAgent(Agent):
             self.agent.stop()
     
     
-    async def add_expr(self, expr : str):
-        self.set('expr', self.get('expr').append(expr))
-    
-    
     async def setup(self):
-        self._print(f'Agent Coordinator > Coordinator is up!')
-        self.set('expr', [])
+        print(f'Agent Coordinator > Coordinator is up!')
         
-        CoordBehav = self.CoordinateBehav()
-        self.add_behaviour(CoordBehav)
+        self.RecvBehav = self.RecieveBehav()
+        self.add_behaviour(self.RecvBehav, Template(to=self.get('jid')))
+        
+        self.SolBehav = self.SolveBehav()
+        self.add_behaviour(self.SolBehav)
 
 
 class OperatorAgent(Agent):
@@ -359,6 +436,8 @@ class OperatorAgent(Agent):
         async def run(self):
             msg = await self.receive()
             
+            if not msg: return
+            
             if msg.body == 'end of the line':
                 await self.kill(exit_code=f'Agent {self.get("op")} CoD: Message from coordinator.')
             
@@ -366,9 +445,16 @@ class OperatorAgent(Agent):
             
             resp = self.operation(*operands)
             
-            msg_back = Message(to=msg.sender, sender=msg.to)
+            msg_back = Message(to=str(msg.sender), sender=self.get('jid'))
             msg_back.body = str(resp)
+            msg_back.set_metadata('ontology', 'solve')
             msg_back.set_metadata('performative', 'inform')
+            
+            self._print(f'Calculating operation {self.get("op")} for {operands} results {resp}.')
+            
+            await self.send(msg_back)
+            
+            msg = None
         
         
         async def on_end(self) -> None:
@@ -379,11 +465,13 @@ class OperatorAgent(Agent):
     async def setup(self):
         print(f'Agent {self.get("op")} > Operator {self.get("op")} is up!')
         
-        OpBehav = self.OperateBehav()
-        self.add_behaviour(OpBehav)
+        self.OpBehav = self.OperateBehav()
+        self.add_behaviour(self.OpBehav, Template(sender='agent_coord@yax.im'))
 
 
-async def get_agents():
+if __name__ == '__main__':
+    # coord, op_agents = asyncio.run(get_agents())
+    
     agents = {
         "*": "agent_mult@yax.im",
         "/": "agent_div@yax.im",
@@ -403,35 +491,45 @@ async def get_agents():
     }
     
     op_agents = set()
-    start_tasks = []
+    # start_tasks = []
     for op, jid in agents.items():
         new_agent =  OperatorAgent(jid, '123456')
         new_agent.set('jid', jid)
         new_agent.set('op', op)
         new_agent.set('operation', operations[op])
         
-        task = new_agent.start()
-        start_tasks.append(task)
+        new_agent.start()
+        # start_tasks.append(new_agent.start())
         op_agents.add(new_agent)
-        
-        print(type(task))
-    
-    await asyncio.gather(start_tasks)
+    # await asyncio.gather(*start_tasks)
+    time.sleep(3)
     
     coord = CoordinatorAgent('agent_coord@yax.im', '123456')
     coord.set('jid', 'agent_coord@yax.im')
     coord.set('agents', agents)
     
-    await coord.start()
+    fut = coord.start()
+    fut.result()
     
-    return coord, op_agents
-
-
-if __name__ == '__main__':
-    coord, op_agents = asyncio.run(get_agents())
-    
-    while not coord.b.is_killed():
-        time.sleep(1)
+    coord.set('expr', [])
+    expr = input('Expressão: ')
+    send_flag = True
+    while(True):
+        try:
+            if send_flag:
+                msg = Message()
+                msg.body = expr
+                msg.set_metadata('performative', 'request')
+                msg.set_metadata('ontology', 'environ_request')
+                asyncio.run(coord.RecvBehav.enqueue(msg))
+                send_flag = False
+            
+        except KeyboardInterrupt:
+            expr = input('Expressão: ')
+            send_flag = True
+            
+            if expr == 'end':
+                break
     
     coord.stop()
     quit_spade()
