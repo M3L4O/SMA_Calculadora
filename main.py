@@ -114,7 +114,6 @@ class CoordAgent(Agent):
 class ResponseAgent(Agent):
     class RecvBeha(CyclicBehaviour):
         def on_subscribe(self, jid):
-            print("[{}] Agent {} asked for subscription. Let's aprove it.".format(self.agent.name, jid.split("@")[0]))
             self.presence.approve(jid)
             self.presence.subscribe(jid)
         
@@ -130,11 +129,17 @@ class ResponseAgent(Agent):
             msg = await self.receive(timeout=30)
             if msg:
                 response = Message(to=str(msg.sender))
-                resp = self.operation(*[ float(x) for x in msg.body.split() ])
+                operands = [ float(x) for x in msg.body.split() ]
+                resp = self.operation(*operands)
                 response.body = str(resp)
                 response.metadata = {"performative": "inform"}
                 await self.send(response)
-                console.print(f"Recebida: {msg.body}\t Respondida: {response.body}")
+                operation = operands.copy()
+                operation.insert(1, self.get('op'))
+                console.print(f"[bold green]Agente de {self.get('name')} >[/bold green]\n"
+                              f"Recebida: {' '.join( str(x) for x in operands)}\n"
+                              f"Avaliada: {' '.join( str(x) for x in operation )}\n"
+                              f"Respondida: {response.body}\n")
 
             else:
                 self.kill()
@@ -149,8 +154,6 @@ class ResponseAgent(Agent):
 
 
 if __name__ == '__main__':
-    # coord, op_agents = asyncio.run(get_agents())
-    
     agents = {
         "*": "agent_mult@yax.im",
         "/": "agent_div@yax.im",
@@ -169,11 +172,21 @@ if __name__ == '__main__':
         'v': lambda x : sqrt(x),
     }
     
+    names = {
+        '*': 'multiplicação',
+        '/': 'divisão',
+        '+': 'soma',
+        '-': 'subtração',
+        '^': 'exponenciação',
+        'v': 'raiz quadrada',
+    }
+    
     console = Console()
     op_agents = set()
     for op, jid in agents.items():
         new_agent = ResponseAgent(jid, '123456')
         
+        new_agent.set('name', names[op])
         new_agent.set('jid', jid)
         new_agent.set('op', op)
         new_agent.set('operation', operations[op])
