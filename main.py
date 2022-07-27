@@ -1,8 +1,12 @@
+import time
+from math import sqrt
+
 from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour, CyclicBehaviour
 from spade.message import Message
 from asyncio import sleep
 from aioxmpp import PresenceShow
+
 import re
 from rich.console import Console
 
@@ -70,12 +74,12 @@ class CoordAgent(Agent):
         async def send_request(self, index, operators, numbers):
             operator = operators[index]
 
-            msg = Message(to=AGENTS[operator])
+            msg = Message(to=agents[operator])
 
             if operator != "v":
-                msg.body = f"{numbers[index]}{operator}{numbers[index+1]}"
+                msg.body = f"{numbers[index]} {numbers[index+1]}"
             else:
-                msg.body = f"{numbers[index]}{operator}"
+                msg.body = f"{numbers[index]}"
             msg.metadata = {"performative": "request"}
             await self.send(msg)
 
@@ -91,6 +95,9 @@ class CoordAgent(Agent):
 
         async def run(self):
             self.presence.set_available()
+            for agent in agents.values():
+                self.presence.subscribe(agent)
+                
             resultado = await self.calc(expression)
             console.print(f"O resultado da {expression} é {resultado}")
             await sleep(10)
@@ -102,18 +109,29 @@ class CoordAgent(Agent):
         )
         op_beha = self.OperBeha()
         self.add_behaviour(op_beha)
-        for agent in AGENTS.values():
-            self.presence.subscribe(agent)
 
 
 class ResponseAgent(Agent):
     class RecvBeha(CyclicBehaviour):
+        def on_subscribe(self, jid):
+            print("[{}] Agent {} asked for subscription. Let's aprove it.".format(self.agent.name, jid.split("@")[0]))
+            self.presence.approve(jid)
+            self.presence.subscribe(jid)
+        
+        
+        async def on_start(self):
+            self.operation = self.get('operation')
+            
+            self.presence.set_available()
+            self.presence.on_subscribe = self.on_subscribe
+            
+        
         async def run(self):
             msg = await self.receive(timeout=30)
             if msg:
-                response = Message(to="agent_coord@yax.im")
-                expr = msg.body.replace("^", "**").replace("v", "**0.5")
-                response.body = f"{eval(expr)}"
+                response = Message(to=str(msg.sender))
+                resp = self.operation(*[ float(x) for x in msg.body.split() ])
+                response.body = str(resp)
                 response.metadata = {"performative": "inform"}
                 await self.send(response)
                 console.print(f"Recebida: {msg.body}\t Respondida: {response.body}")
@@ -130,8 +148,10 @@ class ResponseAgent(Agent):
         self.add_behaviour(recv_beha)
 
 
-if __name__ == "__main__":
-    AGENTS = {
+if __name__ == '__main__':
+    # coord, op_agents = asyncio.run(get_agents())
+    
+    agents = {
         "*": "agent_mult@yax.im",
         "/": "agent_div@yax.im",
         "+": "agent_add@yax.im",
@@ -139,26 +159,46 @@ if __name__ == "__main__":
         "^": "agent_exp@yax.im",
         "v": "agent_sqr@yax.im",
     }
+    
+    operations = {
+        '*': lambda x, y : x * y,
+        '/': lambda x, y : x / y,
+        '+': lambda x, y : x + y,
+        '-': lambda x, y : x - y,
+        '^': lambda x, y : x ** y,
+        'v': lambda x : sqrt(x),
+    }
+    
     console = Console()
-    expression = input("Digite a expressão:\n~ ")
-    add_agent = ResponseAgent(AGENTS["+"], "123456")
-    add_agent.start()
-    mult_agent = ResponseAgent(AGENTS["*"], "123456")
-    mult_agent.start()
-    div_agent = ResponseAgent(AGENTS["/"], "123456")
-    div_agent.start()
-    sub_agent = ResponseAgent(AGENTS["-"], "123456")
-    sub_agent.start()
-    exp_agent = ResponseAgent(AGENTS["^"], "123456")
-    exp_agent.start()
-    sqr_agent = ResponseAgent(AGENTS["v"], "123456")
-    sqr_agent.start()
-
-    coord_agent = CoordAgent("agent_coord@yax.im", "123456")
-    coord_agent.start()
-    coord_agent.web.start(hostname="127.0.0.1", port=10000)
+    op_agents = set()
+    for op, jid in agents.items():
+        new_agent = ResponseAgent(jid, '123456')
+        
+        new_agent.set('jid', jid)
+        new_agent.set('op', op)
+        new_agent.set('operation', operations[op])
+        
+        fut = new_agent.start()
+        op_agents.add(new_agent)
+    
+    fut.result()
+    time.sleep(3)
+    
+    coord = CoordAgent('agent_coord@yax.im', '123456')
+    coord.set('jid', 'agent_coord@yax.im')
+    
+    expression = input('Expressão: ')
+    
+    coord.set('agents', agents)
+    coord.web.start(hostname="127.0.0.1", port=10000)
+    
+    fut = coord.start()
+    fut.result()
+    
     try:
         while True:
             pass
     except KeyboardInterrupt:
         console.print("\n\n[red]Encerrando...[/red]")
+    
+    coord.stop()
