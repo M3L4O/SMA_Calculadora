@@ -32,8 +32,8 @@ class ExprParser:
         self.num_stack = []
         self.op_stack = []
         self.tok_stack = []
+        self.postfix = []
         
-        # self.pops = { 'v' : 1, '^' : 2, '*' : 3, '/' : 3, '+' : 4, '-' : 4 }
         self.pops = { '-' : 1, '+' : 1, '*' : 2, '/' : 2, '^' : 3, 'v' : 4 }
         
         self.mops = { '(', ')' }
@@ -128,7 +128,7 @@ class ExprParser:
     def parse(self, expr : str) -> tuple:
         self._parse(expr)
         if not self._verify_parse(): return None
-        return self.num_stack.copy(), self.op_stack.copy()
+        return self.num_stack.copy, self.op_stack.copy()
     
     
     def parse_postfix(self, expr : str) -> str:
@@ -162,9 +162,9 @@ class ExprParser:
         while len(conv_stack):
             postfix.append(conv_stack.pop())
         
-        self.postfix = ''.join(postfix)
+        self.postfix = postfix
         
-        return ''.join(postfix)
+        return self.postfix.copy()
     
 
 if __name__ == '__main__':
@@ -173,4 +173,5 @@ if __name__ == '__main__':
     print(ep.parse(expr))
     print(ep.parse_postfix(expr))
     print(ep.expr)
+    print(ep.postfix)
     print(ep.check_valid_num(30), ep.check_valid_num(30.23), ep.check_valid_num(30.13e-10))

@@ -2,6 +2,7 @@ from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour, CyclicBehaviour
 from spade.message import Message
 from asyncio import sleep
+from aioxmpp import PresenceShow
 import re
 from rich.console import Console
 
@@ -89,6 +90,7 @@ class CoordAgent(Agent):
             numbers[index] = float(response.body)
 
         async def run(self):
+            self.presence.set_available()
             resultado = await self.calc(expression)
             console.print(f"O resultado da {expression} é {resultado}")
             await sleep(10)
@@ -100,7 +102,6 @@ class CoordAgent(Agent):
         )
         op_beha = self.OperBeha()
         self.add_behaviour(op_beha)
-        self.presence.set_available()
         for agent in AGENTS.values():
             self.presence.subscribe(agent)
 
@@ -125,6 +126,7 @@ class ResponseAgent(Agent):
             f"[green]Agente [bold red]{self.name}[/bold red] iniciado...[/green]"
         )
         recv_beha = self.RecvBeha()
+        self.presence.set_available()
         self.add_behaviour(recv_beha)
 
 
