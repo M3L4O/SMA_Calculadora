@@ -331,7 +331,7 @@ class CoordinatorAgent(Agent):
             msg = Message(to=self.get('agents')[op], sender=self.get('jid'))
             msg.body = ' '.join([ x for x in self.curr_expr_postfix[op_range[0] : op_range[1]] ])
             msg.set_metadata('ontology', 'request_for_computation')
-            msg.set_metadata('performative', 'query')
+            msg.set_metadata('performative', 'request')
             
             await self.agent.IOBehav.enqueue(msg)
             
@@ -386,7 +386,7 @@ class CoordinatorAgent(Agent):
             self.sends = set()
             msg = Message(to=self.get('jid'), sender=self.get('jid'))
             msg.body('end')
-            msg.set_metadata('performative', 'request')
+            msg.set_metadata('performative', 'propagate')
             
             await self.agent.IOBehav.enqueue(msg)
         
